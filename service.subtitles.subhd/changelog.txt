@@ -1,4 +1,8 @@
-﻿1.0.14
+﻿1.0.15
+- fix bug in 1.0.14
+- add notice message from web site
+
+1.0.14
 - changed to use session on web access, thanks Likeca
 - get rid of warning about BeautifulSoup
 
