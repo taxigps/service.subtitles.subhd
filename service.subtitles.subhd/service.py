@@ -6,7 +6,6 @@ import sys
 import xbmc
 import urllib
 import urllib2
-import shutil
 import xbmcvfs
 import xbmcaddon
 import xbmcgui,xbmcplugin
@@ -26,8 +25,9 @@ __temp__       = xbmc.translatePath( os.path.join( __profile__, 'temp') ).decode
 
 sys.path.append (__resource__)
 
-SUBHD_API  = 'http://www.subhd.com/search/%s'
-SUBHD_BASE = 'http://www.subhd.com'
+SUBHD_API  = 'http://subhd.com/search/%s'
+SUBHD_BASE = 'http://subhd.com'
+UserAgent  = 'Mozilla/5.0 (compatible; MSIE 10.0; Windows NT 6.1; Trident/6.0)'
 
 def log(module, msg):
     xbmc.log((u"%s::%s - %s" % (__scriptname__,module,msg,)).encode('utf-8'),level=xbmc.LOGDEBUG )
@@ -35,32 +35,77 @@ def log(module, msg):
 def normalizeString(str):
     return str
 
+def GetHttpData(url, data=''):
+    if data:
+        req = urllib2.Request(url, data)
+    else:
+        req = urllib2.Request(url)
+    req.add_header('User-Agent', UserAgent)
+    try:
+        response = urllib2.urlopen(req)
+        httpdata = response.read()
+        response.close()
+    except:
+        log(__name__, "%s (%d) [%s]" % (
+               sys.exc_info()[2].tb_frame.f_code.co_name,
+               sys.exc_info()[2].tb_lineno,
+               sys.exc_info()[1]
+               ))
+        return ''
+    return httpdata
+
 def Search( item ):
     subtitles_list = []
 
     log( __name__ ,"Search for [%s] by name" % (os.path.basename( item['file_original_path'] ),))
     if item['mansearch']:
-        url = SUBHD_API % (item['mansearchstr'])
+        search_string = item['mansearchstr']
+    elif len(item['tvshow']) > 0:
+        search_string = "%s S%.2dE%.2d" % (item['tvshow'],
+                                           int(item['season']),
+                                           int(item['episode']))
     else:
-        url = SUBHD_API % (item['title'])
+        search_string = item['title']
+    url = SUBHD_API % (urllib.quote(search_string))
+    data = GetHttpData(url)
     try:
-        socket = urllib.urlopen( url )
-        data = socket.read()
-        socket.close()
         soup = BeautifulSoup(data)
     except:
         return
+
     results = soup.find_all("div", class_="box")
-    for it in results:
-        link = SUBHD_BASE + it.a.get('href').encode('utf-8')
-        version = it.find(text='字幕翻译'.decode('utf-8')).next.next.text.strip().encode('utf-8')
+
+    # if can't find subtitle for the specified episode, try the whole season instead
+    if (len(results) == 0) and (len(item['tvshow']) > 0):
+        search_string = "%s S%.2d" % (item['tvshow'], int(item['season']))
+        url = SUBHD_API % (urllib.quote(search_string))
+        data = GetHttpData(url)
         try:
-            r2 = it.find_all("span", class_="label label-default")
-            langs = [x.text.encode('utf-8') for x in r2]
+            soup = BeautifulSoup(data)
+        except:
+            return
+        results = [x for x in soup.find_all("div", class_="box") if x.find('div', class_='tvlist')]
+
+    for it in results:
+        link = SUBHD_BASE + it.find("div", class_="d_title").a.get('href').encode('utf-8')
+        version = it.find("div", class_="d_title").a.get('title').encode('utf-8')
+        if version.find('本字幕按 ') == 0:
+            version = version.split()[1]
+        try:
+            group = it.find("div", class_="d_zu").text.encode('utf-8')
+            if group.isspace():
+                group = ''
+        except:
+            group = ''
+        if group and (version.find(group) == -1):
+            version += ' ' + group
+        try:
+            r2 = it.find_all("span", class_="label")
+            langs = [x.text.encode('utf-8') for x in r2][:-1]
         except:
             langs = '未知'
         name = '%s (%s)' % (version, ",".join(langs))
-        if ('英文' in langs) and not(('简体中文' in langs) or ('繁体中文' in langs)):
+        if ('英文' in langs) and not(('简体' in langs) or ('繁体' in langs)):
             subtitles_list.append({"language_name":"English", "filename":name, "link":link, "language_flag":'en', "rating":"0", "lang":langs})
         else:
             subtitles_list.append({"language_name":"Chinese", "filename":name, "link":link, "language_flag":'zh', "rating":"0", "lang":langs})
@@ -68,22 +113,32 @@ def Search( item ):
     if subtitles_list:
         for it in subtitles_list:
             listitem = xbmcgui.ListItem(label=it["language_name"],
-                                  label2=it["filename"],
-                                  iconImage=it["rating"],
-                                  thumbnailImage=it["language_flag"]
-                                  )
+                                        label2=it["filename"],
+                                        iconImage=it["rating"],
+                                        thumbnailImage=it["language_flag"]
+                                       )
 
             listitem.setProperty( "sync", "false" )
             listitem.setProperty( "hearing_imp", "false" )
 
             url = "plugin://%s/?action=download&link=%s&lang=%s" % (__scriptid__,
-                                                                        it["link"],
-                                                                        it["lang"]
-                                                                        )
+                                                                    it["link"],
+                                                                    it["lang"]
+                                                                    )
             xbmcplugin.addDirectoryItem(handle=int(sys.argv[1]),url=url,listitem=listitem,isFolder=False)
 
+def rmtree(path):
+    if isinstance(path, unicode):
+        path = path.encode('utf-8')
+    dirs, files = xbmcvfs.listdir(path)
+    for dir in dirs:
+        rmtree(os.path.join(path, dir))
+    for file in files:
+        xbmcvfs.delete(os.path.join(path, file))
+    xbmcvfs.rmdir(path) 
+
 def Download(url,lang):
-    try: shutil.rmtree(__temp__)
+    try: rmtree(__temp__)
     except: pass
     try: os.makedirs(__temp__)
     except: pass
@@ -91,39 +146,33 @@ def Download(url,lang):
     subtitle_list = []
     exts = [".srt", ".sub", ".txt", ".smi", ".ssa", ".ass" ]
     try:
-        socket = urllib.urlopen( url )
-        data = socket.read()
+        data = GetHttpData(url)
         soup = BeautifulSoup(data)
         id = soup.find("button", class_="btn btn-danger btn-sm").get("sid").encode('utf-8')
-        url = "http://www.subhd.com/ajax/down_ajax"
+        url = "http://subhd.com/ajax/down_ajax"
         values = {'sub_id':id}
-        data = urllib.urlencode(values)
-        req = urllib2.Request(url, data)
-        response = urllib2.urlopen(req)
-        data = response.read()
+        para = urllib.urlencode(values)
+        data = GetHttpData(url, para)
         match = re.compile('"url":"([^"]+)"').search(data)
-        url = SUBHD_BASE + match.group(1).replace(r'\/','/').decode("unicode-escape").encode('utf-8')
-        socket = urllib.urlopen( url )
-        data = socket.read()
-        socket.close()
+        url = match.group(1).replace(r'\/','/').decode("unicode-escape").encode('utf-8')
+        if url[:4] <> 'http':
+            url = 'http://subhd.com%s' % (url)
+        data = GetHttpData(url)
     except:
         return []
     if len(data) < 1024:
         return []
-    if data[:4] == 'Rar!':
-        zip = os.path.join(__temp__,"subtitles.rar")
-    elif data[:2] == 'PK':
-        zip = os.path.join(__temp__,"subtitles.zip")
-    else:
-        zip = os.path.join(__temp__,"subtitles.srt")
+    zip = os.path.join(__temp__, "subtitles%s" % os.path.splitext(url)[1])
     with open(zip, "wb") as subFile:
         subFile.write(data)
     subFile.close()
     xbmc.sleep(500)
-    if not zip.endswith('.srt'):
+    if data[:4] == 'Rar!' or data[:2] == 'PK':
         xbmc.executebuiltin(('XBMC.Extract("%s","%s")' % (zip,__temp__,)).encode('utf-8'), True)
     path = __temp__
     dirs, files = xbmcvfs.listdir(path)
+    if ('__MACOSX') in dirs:
+        dirs.remove('__MACOSX')
     if len(dirs) > 0:
         path = os.path.join(__temp__, dirs[0].decode('utf-8'))
         dirs, files = xbmcvfs.listdir(path)
@@ -133,7 +182,7 @@ def Download(url,lang):
             list.append(subfile.decode('utf-8'))
     if len(list) == 1:
         subtitle_list.append(os.path.join(path, list[0]))
-    else:
+    elif len(list) > 1:
         sel = xbmcgui.Dialog().select('请选择压缩包中的字幕', list)
         if sel == -1:
             sel = 0
