@@ -1,4 +1,8 @@
-﻿1.0.13
+﻿1.0.14
+- changed to use session on web access, thanks Likeca
+- get rid of warning about BeautifulSoup
+
+1.0.13
 - fixed for site changed
 
 1.0.12
