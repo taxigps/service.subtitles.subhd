@@ -1,4 +1,19 @@
-﻿1.0.15
+﻿1.0.18
+- support rar file in Kodi 18
+- hack to fix encoding problem of zip file in Kodi 18
+- fixed can't download file with Chinese filename
+- change to use json
+
+1.0.17
+- get rid of function normalizeString
+- fix for shutil.rmtree can't remove dir under android
+
+1.0.16
+- change to use shutil.rmtree
+- fix search url
+- add "dtoken" parameters for download api, thanks Cyriltra
+
+1.0.15
 - fix bug in 1.0.14
 - add notice message from web site
 
