@@ -1,4 +1,7 @@
-﻿1.0.18
+﻿1.0.19
+- site url changed to subhd.tv
+
+1.0.18
 - support rar file in Kodi 18
 - hack to fix encoding problem of zip file in Kodi 18
 - fixed can't download file with Chinese filename
