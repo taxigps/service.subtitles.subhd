@@ -1,4 +1,7 @@
-﻿1.0.19
+﻿1.0.20
+- add requires for vfs.rar
+
+1.0.19
 - site url changed to subhd.tv
 
 1.0.18
